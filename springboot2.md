@@ -1,5 +1,63 @@
 # Spring Boot 2.x
 
+#### SpringMVC自动配置概览
+
+Spring Boot provides auto-configuration for Spring MVC that **works well with most applications.(大多场景我们都无需自定义配置)**
+
+The auto-configuration adds the following features on top of Spring’s defaults:
+
+- Inclusion of `ContentNegotiatingViewResolver` and `BeanNameViewResolver` beans.
+
+- - 内容协商视图解析器和BeanName视图解析器
+
+- Support for serving static resources, including support for WebJars (covered [later in this document](https://docs.spring.io/spring-boot/docs/current/reference/html/spring-boot-features.html#boot-features-spring-mvc-static-content))).
+
+- - 静态资源（包括webjars）
+
+- Automatic registration of `Converter`, `GenericConverter`, and `Formatter` beans.
+
+- - 自动注册 `Converter，GenericConverter，Formatter `
+
+- Support for `HttpMessageConverters` (covered [later in this document](https://docs.spring.io/spring-boot/docs/current/reference/html/spring-boot-features.html#boot-features-spring-mvc-message-converters)).
+
+- - 支持 `HttpMessageConverters` （后来我们配合内容协商理解原理）
+
+- Automatic registration of `MessageCodesResolver` (covered [later in this document](https://docs.spring.io/spring-boot/docs/current/reference/html/spring-boot-features.html#boot-features-spring-message-codes)).
+
+- - 自动注册 `MessageCodesResolver` （国际化用）
+
+- Static `index.html` support.
+
+- - 静态index.html 页支持
+
+- Custom `Favicon` support (covered [later in this document](https://docs.spring.io/spring-boot/docs/current/reference/html/spring-boot-features.html#boot-features-spring-mvc-favicon)).
+
+- - 自定义 `Favicon`  
+
+- Automatic use of a `ConfigurableWebBindingInitializer` bean (covered [later in this document](https://docs.spring.io/spring-boot/docs/current/reference/html/spring-boot-features.html#boot-features-spring-mvc-web-binding-initializer)).
+
+- - 自动使用 `ConfigurableWebBindingInitializer` ，（DataBinder负责将请求数据绑定到JavaBean上）
+
+> If you want to keep those Spring Boot MVC customizations and make more [MVC customizations](https://docs.spring.io/spring/docs/5.2.9.RELEASE/spring-framework-reference/web.html#mvc) (interceptors, formatters, view controllers, and other features), you can add your own `@Configuration` class of type `WebMvcConfigurer` but **without** `@EnableWebMvc`.
+>
+> **不用@EnableWebMvc注解。使用** **@Configuration** **+** **WebMvcConfigurer** **自定义规则**
+
+
+
+> If you want to provide custom instances of `RequestMappingHandlerMapping`, `RequestMappingHandlerAdapter`, or `ExceptionHandlerExceptionResolver`, and still keep the Spring Boot MVC customizations, you can declare a bean of type `WebMvcRegistrations` and use it to provide custom instances of those components.
+>
+> **声明** **WebMvcRegistrations** **改变默认底层组件**
+
+
+
+> If you want to take complete control of Spring MVC, you can add your own `@Configuration` annotated with `@EnableWebMvc`, or alternatively add your own `@Configuration`-annotated `DelegatingWebMvcConfiguration` as described in the Javadoc of `@EnableWebMvc`.
+>
+> **使用** **@EnableWebMvc+@Configuration+DelegatingWebMvcConfiguration 全面接管SpringMVC**
+
+
+
+#### 其他
+
 ##### META_INF/spring-factories位置来加载一个文件
 
 主要是spring-boot-autoConfiguration这个jar包下面的这个文件 
@@ -225,7 +283,7 @@ spring:
 
 #### 请求参数处理
 
-##### 1. 请求映射
+##### 0. 请求映射
 
 ##### 1. rest使用原理
 
@@ -444,7 +502,61 @@ WebRequest、ServletRequest、MultipartRequest、 HttpSession、javax.servlet.ht
 
 ##### 1.3、复杂参数
 
+**Map、Model(map、model里面的数据会被放在request的请求域中  相当于 request.setAttribute)**、Errors/Bindingresult、**RedirectAttributes(重定向携带数据)**、**ServletResponse**、SessionStatus、UriComponentsBuilder、ServletUriComponentsBuilder
 
+~~~java
+// 在这三个对象中放东西  都相当于在request域中放数据
+@GetMapping("/params")
+    public String testParms(Map<String, Object> map,
+                            Model model,
+                            HttpServletRequest request){
+        map.put("map","map 123");
+        model.addAttribute("model","model 123");
+        request.setAttribute("request", "request 123");      
+        return "forward:" + "/success";
+    }
+~~~
+
+**Map、Model**类型的参数，最终都会返回  mavContainer.getModel();----->是Model  也是 Map
+
+![](SpringBoot2Imgs\7.png)
+
+![](SpringBoot2Imgs\8.png)
+
+![](SpringBoot2Imgs\9.png)
+
+##### 1.4、自定义对象参数
+
+可以自动类型转换与格式化，可以级联封装。
+
+~~~java
+/**
+ *     姓名： <input name="userName"/> <br/>
+ *     年龄： <input name="age"/> <br/>
+ *     生日： <input name="birth"/> <br/>
+ *     宠物姓名：<input name="pet.name"/><br/>
+ *     宠物年龄：<input name="pet.age"/>
+ */
+@Data
+public class Person {
+    
+    private String userName;
+    private Integer age;
+    private Date birth;
+    private Pet pet;
+    
+}
+
+@Data
+public class Pet {
+
+    private String name;
+    private String age;
+
+}
+
+result
+~~~
 
 
 
@@ -564,11 +676,305 @@ protected Object[] getMethodArgumentValues(NativeWebRequest request, @Nullable M
 
 调用各自 HandlerMethodArgumentResolver 的 resolveArgument 方法即可
 
+##### 5.3、自定义类型参数 封装POJO
+
+**ServletModelAttributeMethodProcessor  这个参数处理器支持是否为简单类型。**
+
+~~~java
+public static boolean isSimpleValueType(Class<?> type) {
+		return (Void.class != type && void.class != type &&
+				(ClassUtils.isPrimitiveOrWrapper(type) ||
+				Enum.class.isAssignableFrom(type) ||
+				CharSequence.class.isAssignableFrom(type) ||
+				Number.class.isAssignableFrom(type) ||
+				Date.class.isAssignableFrom(type) ||
+				Temporal.class.isAssignableFrom(type) ||
+				URI.class == type ||
+				URL.class == type ||
+				Locale.class == type ||
+				Class.class == type));
+	}
+~~~
+
+~~~java
+@Override
+	@Nullable
+	public final Object resolveArgument(MethodParameter parameter, @Nullable ModelAndViewContainer mavContainer,
+			NativeWebRequest webRequest, @Nullable WebDataBinderFactory binderFactory) throws Exception {
+
+		Assert.state(mavContainer != null, "ModelAttributeMethodProcessor requires ModelAndViewContainer");
+		Assert.state(binderFactory != null, "ModelAttributeMethodProcessor requires WebDataBinderFactory");
+
+		String name = ModelFactory.getNameForParameter(parameter);
+		ModelAttribute ann = parameter.getParameterAnnotation(ModelAttribute.class);
+		if (ann != null) {
+			mavContainer.setBinding(name, ann.binding());
+		}
+
+		Object attribute = null;
+		BindingResult bindingResult = null;
+
+		if (mavContainer.containsAttribute(name)) {
+			attribute = mavContainer.getModel().get(name);
+		}
+		else {
+			// Create attribute instance
+			try {
+				attribute = createAttribute(name, parameter, binderFactory, webRequest);
+			}
+			catch (BindException ex) {
+				if (isBindExceptionRequired(parameter)) {
+					// No BindingResult parameter -> fail with BindException
+					throw ex;
+				}
+				// Otherwise, expose null/empty value and associated BindingResult
+				if (parameter.getParameterType() == Optional.class) {
+					attribute = Optional.empty();
+				}
+				bindingResult = ex.getBindingResult();
+			}
+		}
+
+		if (bindingResult == null) {
+			// Bean property binding and validation;
+			// skipped in case of binding failure on construction.
+			WebDataBinder binder = binderFactory.createBinder(webRequest, attribute, name);
+			if (binder.getTarget() != null) {
+				if (!mavContainer.isBindingDisabled(name)) {
+					bindRequestParameters(binder, webRequest);
+				}
+				validateIfApplicable(binder, parameter);
+				if (binder.getBindingResult().hasErrors() && isBindExceptionRequired(binder, parameter)) {
+					throw new BindException(binder.getBindingResult());
+				}
+			}
+			// Value type adaptation, also covering java.util.Optional
+			if (!parameter.getParameterType().isInstance(attribute)) {
+				attribute = binder.convertIfNecessary(binder.getTarget(), parameter.getParameterType(), parameter);
+			}
+			bindingResult = binder.getBindingResult();
+		}
+
+		// Add resolved attribute and BindingResult at the end of the model
+		Map<String, Object> bindingResultModel = bindingResult.getModel();
+		mavContainer.removeAttributes(bindingResultModel);
+		mavContainer.addAllAttributes(bindingResultModel);
+
+		return attribute;
+	}
+~~~
+
+**WebDataBinder binder = binderFactory.createBinder(webRequest, attribute, name);**
+
+**WebDataBinder :web数据绑定器，将请求参数的值绑定到指定的JavaBean里面(attribute空对象)**
+
+**WebDataBinder 利用它里面的 Converters 将请求数据转成指定的数据类型。再次封装到JavaBean中**
+
+
+
+(http 超文本协议  万物皆文本  从文本对象转为需要的类型)
+
+**GenericConversionService：在设置每一个值的时候，找它里面的所有converter那个可以将这个数据类型（request带来参数的字符串）转换到指定的类型（JavaBean -- Integer）** // 看哪个可以支持转换操作
+
+**byte -- > file**  
+
+![](SpringBoot2Imgs\11.png)
+
+**所有的converter**
+
+![](SpringBoot2Imgs\12.png)
+
+未来我们可以给WebDataBinder里面放自己的Converter；
+
+**private static final class** StringToNumber<T **extends** Number> **implements** Converter<String, T>
+
+
+
+##### 6、目标方法执行完成
+
+将所有的数据都放在ModelAndViewContainer；包含要去的页面地址View，还包含Model数据
+
+![](SpringBoot2Imgs\10.png)
+
+##### 7、处理派发结果
+
+**核心方法**
+
+**processDispatchResult**(processedRequest, response, mappedHandler, mv, dispatchException);
+
+renderMergedOutputModel(mergedModel, getRequestToExpose(request), response);
+
+~~~java
+InternalResourceView类：
+@Override
+	protected void renderMergedOutputModel(
+			Map<String, Object> model, HttpServletRequest request, HttpServletResponse response) throws Exception {
+    
+		// Expose the model object as request attributes.
+		exposeModelAsRequestAttributes(model, request);
+
+		// Expose helpers as request attributes, if any.
+		exposeHelpers(request);
+
+		// Determine the path for the request dispatcher.
+		String dispatcherPath = prepareForRendering(request, response);
+
+		// Obtain a RequestDispatcher for the target resource (typically a JSP).
+		RequestDispatcher rd = getRequestDispatcher(request, dispatcherPath);
+		if (rd == null) {
+			throw new ServletException("Could not get RequestDispatcher for [" + getUrl() +
+					"]: Check that the corresponding file exists within your web application archive!");
+		}
+
+		// If already included or response already committed, perform include, else forward.
+		if (useInclude(request, response)) {
+			response.setContentType(getContentType());
+			if (logger.isDebugEnabled()) {
+				logger.debug("Including [" + getUrl() + "]");
+			}
+			rd.include(request, response);
+		}
+
+		else {
+			// Note: The forwarded resource is supposed to determine the content type itself.
+			if (logger.isDebugEnabled()) {
+				logger.debug("Forwarding to [" + getUrl() + "]");
+			}
+			rd.forward(request, response);
+		}
+	}
+~~~
+
+**关键点**
+
+~~~java
+暴露模型作为请求域属性
+		// Expose the model object as request attributes.
+		// 就是遍历model这个map对象 把key-value放入request域中
+		exposeModelAsRequestAttributes(model, request);
+~~~
+
+~~~java
+protected void exposeModelAsRequestAttributes(Map<String, Object> model,
+			HttpServletRequest request) throws Exception {
+    	//model中的所有数据遍历挨个放在请求域中
+		model.forEach((name, value) -> {
+			if (value != null) {
+				request.setAttribute(name, value);
+			}
+			else {
+				request.removeAttribute(name);
+			}
+		});
+	}
+~~~
+
+### 4.数据响应与内容协商
+
+![](SpringBoot2Imgs\13.jpg)
+
+
+
+#### 1、响应JSON
+
+##### 1.1、jackson.jar + @ResponseBody
+
+~~~pom
+    <dependency>
+       <groupId>org.springframework.boot</groupId>
+       <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+	<!-- web场景自动引入了json场景 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-json</artifactId>
+      <version>2.3.4.RELEASE</version>
+      <scope>compile</scope>
+    </dependency>
+~~~
+
+![](SpringBoot2Imgs\13.png)
+
+给前端自动返回json数据
+
+##### 1、返回值解析器
+
+![](SpringBoot2Imgs\14.png)
+
+~~~java
+try {
+		this.returnValueHandlers.handleReturnValue(
+		returnValue, getReturnValueType(returnValue), mavContainer, webRequest);
+	}
+~~~
+
+~~~java
+	@Override
+	public void handleReturnValue(@Nullable Object returnValue, MethodParameter returnType,
+			ModelAndViewContainer mavContainer, NativeWebRequest webRequest) throws Exception {
+
+		HandlerMethodReturnValueHandler handler = selectHandler(returnValue, returnType);
+		if (handler == null) {
+			throw new IllegalArgumentException("Unknown return value type: " + returnType.getParameterType().getName());
+		}
+		handler.handleReturnValue(returnValue, returnType, mavContainer, webRequest);
+	}
+~~~
+
+~~~java
+RequestResponseBodyMethodProcessor  	
+@Override
+	public void handleReturnValue(@Nullable Object returnValue, MethodParameter returnType,
+			ModelAndViewContainer mavContainer, NativeWebRequest webRequest)
+			throws IOException, HttpMediaTypeNotAcceptableException, HttpMessageNotWritableException {
+
+		mavContainer.setRequestHandled(true);
+		ServletServerHttpRequest inputMessage = createInputMessage(webRequest);
+		ServletServerHttpResponse outputMessage = createOutputMessage(webRequest);
+
+		// Try even with null return value. ResponseBodyAdvice could get involved.
+        // 使用消息转换器进行写出操作
+		writeWithMessageConverters(returnValue, returnType, inputMessage, outputMessage);
+	}
+~~~
 
 
 
 
 
+##### 2、返回值解析器原理
 
+![](SpringBoot2Imgs\15.png)
 
+- 1、返回值处理器判断是否支持这种类型返回值 supportsReturnType
+- 2、返回值处理器调用 handleReturnValue 进行处理
+- 3、RequestResponseBodyMethodProcessor 可以处理返回值标了@ResponseBody 注解的。
 
+- - 1.  利用 MessageConverters 进行处理 将数据写为json
+
+- - - 1、内容协商（浏览器默认会以请求头的方式告诉服务器他能接受什么样的内容类型）
+    - 2、服务器最终根据自己自身的能力，决定服务器能生产出什么样内容类型的数据，
+    - 3、SpringMVC会挨个遍历所有容器底层的 HttpMessageConverter ，看谁能处理？
+
+- - - - 1、得到MappingJackson2HttpMessageConverter可以将对象写为json
+      - 2、利用MappingJackson2HttpMessageConverter将对象转为json再写出去。
+
+##### 1.2、SpringMVC到底支持哪些返回值
+
+~~~
+ModelAndView
+Model
+View
+ResponseEntity 
+ResponseBodyEmitter
+StreamingResponseBody
+HttpEntity
+HttpHeaders
+Callable
+DeferredResult
+ListenableFuture
+CompletionStage
+WebAsyncTask
+有 @ModelAttribute 且为对象类型的
+@ResponseBody 注解 ---> RequestResponseBodyMethodProcessor；
+~~~
